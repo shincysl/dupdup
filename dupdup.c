@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <libnet.h>
+#include <time.h>
 
 /* default snap length (maximum bytes per packet to capture) */
 #define SNAP_LEN 65535
@@ -17,21 +18,73 @@
 #endif
 
 #define SPECIAL_TTL 80
+#define BW_ESTIMATE_SIZE 3
+
+int bwestimate_byte[BW_ESTIMATE_SIZE];
+int bwestimate_time[BW_ESTIMATE_SIZE];
+int bwestimate_packet = 0;
+int bwestimate_result = 0;
+
+int throttle_low = 512;
+int throttle_median = 1024;
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 void print_usage(void);
+void estimate_bandwidth(struct libnet_ipv4_hdr *ip);
+char estimate_ok(void);
 
 
 /*
  * print help text
  */
 void print_usage(void) {
-	printf("Usage: %s [interface][\"filter rule\"]\n", "dupdup");
+	printf("Usage: %s [interface][\"filter rule\"] [low] [med]\n", "dupdup");
 	printf("\n");
 	printf("Options:\n");
 	printf("    interface    Listen on <interface> for packets.\n");
 	printf("    filter       Rules to filter packets.\n");
 	printf("\n");
+}
+
+void estimate_bandwidth(struct libnet_ipv4_hdr *ip) {
+	int now = (int)time(0); // truncated
+	int fract = now % BW_ESTIMATE_SIZE;
+	int whole = now / BW_ESTIMATE_SIZE;
+
+	// Out-of-date
+	for (int i = 0; i < BW_ESTIMATE_SIZE; i++) {
+		if (bwestimate_time[i] > 0 && whole - bwestimate_time[i] > 1) {
+			bwestimate_time[i] = 0;
+			bwestimate_byte[i] = 0;
+		}
+	}
+	if (bwestimate_time[fract] != whole) {
+		bwestimate_time[fract] = 0;
+		bwestimate_byte[fract] = 0;
+	}
+
+	// Accumulate
+	bwestimate_time[fract] = whole;
+	bwestimate_byte[fract] += ntohs(ip->ip_len);
+
+	// Mean BW
+	int mean = 0;
+	for (int i = 0; i < BW_ESTIMATE_SIZE; i++) {
+		mean += bwestimate_byte[i];
+	}
+	bwestimate_result = mean / BW_ESTIMATE_SIZE;
+	bwestimate_packet++;
+}
+
+char estimate_ok() {
+	int kbytes = bwestimate_result / 1024;
+	if (kbytes < throttle_low) {
+		return 0;
+	} else if (kbytes < throttle_median) {
+		return bwestimate_packet % 2;
+	} else {
+		return 127;
+	}
 }
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
@@ -44,6 +97,11 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	ip = (struct libnet_ipv4_hdr*)(packet + ETHERNET_H_LEN);
 
 	if(ip->ip_ttl != SPECIAL_TTL) {
+		estimate_bandwidth(ip);
+		if (estimate_ok() != 0) {
+			return;
+		}
+
 		ip->ip_ttl = SPECIAL_TTL;
 		ip->ip_sum = 0;
 		if(ip->ip_p == IPPROTO_TCP) {
@@ -76,7 +134,7 @@ libnet_t* start_libnet(char *dev) {
 	return libnet_handler;
 }
 
-#define ARGC_NUM 3
+#define ARGC_NUM 5
 int main(int argc, char **argv) {
 	char *dev = NULL;
 	char errbuf[PCAP_ERRBUF_SIZE];
@@ -89,8 +147,12 @@ int main(int argc, char **argv) {
 	if (argc == ARGC_NUM) {
 		dev = argv[1];
 		filter_rule = argv[2];
+		throttle_low = atoi(argv[3]);
+		throttle_median = atoi(argv[4]);
 		printf("Device: %s\n", dev);
 		printf("Filter rule: %s\n", filter_rule);
+		printf("100%%: 0 - %d kbytes\n", throttle_low);
+		printf("50%%: %d - %d kbytes\n", throttle_low, throttle_median);
 	} else {
 		print_usage();	
 		return -1;
