@@ -16,7 +16,7 @@
 	#define ETHERNET_H_LEN 14
 #endif
 
-#define SPECIAL_TTL 88
+#define SPECIAL_TTL 80
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 void print_usage(void);
@@ -26,7 +26,7 @@ void print_usage(void);
  * print help text
  */
 void print_usage(void) {
-	printf("Usage: %s [interface][\"filter rule\"]\n", "net_speeder");
+	printf("Usage: %s [interface][\"filter rule\"]\n", "dupdup");
 	printf("\n");
 	printf("Options:\n");
 	printf("    interface    Listen on <interface> for packets.\n");
@@ -61,7 +61,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 			printf("err msg:[%s]\n", libnet_geterror(libnet_handler));
 		}
 	} else {
-		//The packet net_speeder sent. nothing todo
+		//The packet dupdup sent. nothing todo
 	}
 	return;
 }

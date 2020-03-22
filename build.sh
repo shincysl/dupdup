@@ -1,3 +1,3 @@
 #!/bin/bash
 
-gcc -O2 -o net_speeder net_speeder.c -lpcap -lnet $1
+gcc -O3 -o dupdup dupdup.c -lpcap -lnet $1
