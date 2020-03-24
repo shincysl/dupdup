@@ -1,3 +1,3 @@
 #!/bin/bash
 ethtool -K eth0 tso off
-dupdup.bin eth0 "tcp src port 443" 512 1024
+exec dupdup.bin eth0 "tcp src port 443" 512 1024
